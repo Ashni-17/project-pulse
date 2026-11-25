@@ -1,0 +1,58 @@
+import { z } from 'zod';
+import { HttpError } from './errors.js';
+
+export function parse(schema, data) {
+  const result = schema.safeParse(data);
+  if (!result.success) throw new HttpError(400, 'Please fix the highlighted fields', result.error.flatten().fieldErrors);
+  return result.data;
+}
+
+const uuid = z.string().uuid();
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD');
+
+export const registerSchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(80),
+  email: z.string().trim().toLowerCase().email('Enter a valid email address').max(255),
+  password: z.string().min(8, 'Use at least 8 characters').max(72)
+    .regex(/[A-Za-z]/, 'Include at least one letter').regex(/\d/, 'Include at least one number'),
+});
+
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Enter a valid email address'),
+  password: z.string().min(1, 'Enter your password'),
+});
+
+export const projectSchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(120),
+  description: z.string().trim().max(1000).default(''),
+});
+
+export const memberSchema = z.object({ email: z.string().trim().toLowerCase().email('Enter a valid email address') });
+
+const taskFields = {
+  title: z.string().trim().min(1, 'Title is required').max(160),
+  description: z.string().max(5000),
+  status: z.enum(['todo', 'in_progress', 'done']),
+  priority: z.enum(['low', 'medium', 'high']),
+  assigneeId: uuid.nullable(),
+  dueDate: isoDate.nullable(),
+};
+
+export const createTaskSchema = z.object({
+  title: taskFields.title,
+  description: taskFields.description.default(''),
+  status: taskFields.status.default('todo'),
+  priority: taskFields.priority.default('medium'),
+  assigneeId: taskFields.assigneeId.optional(),
+  dueDate: taskFields.dueDate.optional(),
+});
+
+export const updateTaskSchema = z.object(taskFields).partial()
+  .refine((o) => Object.keys(o).length > 0, 'Nothing to update');
+
+export const moveTaskSchema = z.object({
+  status: taskFields.status,
+  index: z.number().int().min(0),
+});
+
+export const commentSchema = z.object({ body: z.string().trim().min(1, 'Write a comment first').max(2000) });
