@@ -55,35 +55,135 @@ router.get('/:taskId', asyncHandler(async (req, res) => {
 router.patch('/:taskId', asyncHandler(async (req, res) => {
   const { projectId, taskId } = req.params;
   const data = parse(updateTaskSchema, req.body);
-  const before = await getTask({ query }, projectId, taskId);
-  if (data.assigneeId) await assertProjectMember({ query }, projectId, data.assigneeId);
 
-  const sets = [];
-  const values = [];
-  const changed = [];
-  for (const [key, column] of Object.entries(COLUMNS)) {
-    if (!(key in data)) continue;
-    if (String(before[column] ?? '') === String(data[key] ?? '')) continue;
-    values.push(data[key]);
-    sets.push(`${column} = $${values.length}`);
-    changed.push(key);
+  const { before, after, changed } = await withTransaction(async (db) => {
+
+    // Lock the task until this transaction finishes.
+    const { rows: [lockedTask] } = await db.query(
+      `SELECT id, version
+       FROM tasks
+       WHERE id = $1 AND project_id = $2
+       FOR UPDATE`,
+      [taskId, projectId]
+    );
+
+    if (!lockedTask) {
+      throw new HttpError(404, 'Task not found');
+    }
+
+    // Reject outdated updates.
+    if (
+      data.expectedVersion !== undefined &&
+      data.expectedVersion !== lockedTask.version
+    ) {
+      throw new HttpError(
+        409,
+        'This task has changed. Refresh and review the latest details before trying again.'
+      );
+    }
+
+    const before = await getTask(db, projectId, taskId);
+
+    if (data.assigneeId) {
+      await assertProjectMember(
+        db,
+        projectId,
+        data.assigneeId
+      );
+    }
+
+    const sets = [];
+    const values = [];
+    const changed = [];
+
+    for (const [key, column] of Object.entries(COLUMNS)) {
+      if (!(key in data)) continue;
+
+      if (
+        String(before[column] ?? '') ===
+        String(data[key] ?? '')
+      ) continue;
+
+      values.push(data[key]);
+      sets.push(`${column} = $${values.length}`);
+      changed.push(key);
+    }
+
+    // No actual changes.
+    if (!changed.length) {
+      return { before, after: before, changed };
+    }
+
+    // Move to the bottom of the destination column.
+    if (changed.includes('status')) {
+      values.push(
+        await nextPosition(db, projectId, data.status)
+      );
+
+      sets.push(`position = $${values.length}`);
+    }
+
+    values.push(taskId, projectId);
+
+    await db.query(
+      `UPDATE tasks
+       SET ${sets.join(', ')}, updated_at = now()
+       WHERE id = $${values.length - 1}
+       AND project_id = $${values.length}`,
+      values
+    );
+
+    // The database trigger automatically increments version.
+    const after = await getTask(db, projectId, taskId);
+
+    return { before, after, changed };
+  });
+
+  // Broadcast only after the transaction commits.
+  if (!changed.length) {
+    return res.json({ task: after });
   }
-  if (!changed.length) return res.json({ task: before });
 
-  if (changed.includes('status')) { // moving via the form drops the card at the bottom of its new column
-    values.push(await nextPosition({ query }, projectId, data.status));
-    sets.push(`position = $${values.length}`);
+  emitToProject(projectId, 'tasks:upsert', {
+    tasks: [after],
+  });
+
+  const log = (action, meta) =>
+    logActivity({ query }, {
+      projectId,
+      taskId,
+      user: req.user,
+      action,
+      meta: {
+        title: after.title,
+        ...meta,
+      },
+    });
+
+  if (changed.includes('status')) {
+    await log('task.status_changed', {
+      from: before.status,
+      to: after.status,
+    });
   }
-  values.push(taskId, projectId);
-  await query(`UPDATE tasks SET ${sets.join(', ')}, updated_at = now() WHERE id = $${values.length - 1} AND project_id = $${values.length}`, values);
-  const after = await getTask({ query }, projectId, taskId);
-  emitToProject(projectId, 'tasks:upsert', { tasks: [after] });
 
-  const log = (action, meta) => logActivity({ query }, { projectId, taskId, user: req.user, action, meta: { title: after.title, ...meta } });
-  if (changed.includes('status')) await log('task.status_changed', { from: before.status, to: after.status });
-  if (changed.includes('assigneeId')) await log('task.assigned', { from: before.assignee_name, to: after.assignee_name });
-  const other = changed.filter((k) => !['status', 'assigneeId'].includes(k));
-  if (other.length) await log('task.updated', { fields: other });
+  if (changed.includes('assigneeId')) {
+    await log('task.assigned', {
+      from: before.assignee_name,
+      to: after.assignee_name,
+    });
+  }
+
+  const other = changed.filter(
+    (key) => !['status', 'assigneeId'].includes(key)
+  );
+
+  if (other.length) {
+    await log('task.updated', {
+      fields: other,
+    });
+  }
+
   res.json({ task: after });
 }));
 

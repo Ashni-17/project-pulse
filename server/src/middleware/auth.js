@@ -3,11 +3,11 @@ import { env } from '../config/env.js';
 import { query } from '../config/db.js';
 import { HttpError, asyncHandler } from '../utils/errors.js';
 
-/**
- * Verifies the bearer token, checks session validity
- * and attaches the current user to the request.
- */
-export const requireAuth = asyncHandler(async (req, res, next) => {
+// ==========================================
+// REUSABLE SESSION VALIDATION
+// ==========================================
+
+export async function validateSession(req) {
 
   const header = req.headers.authorization || '';
 
@@ -16,7 +16,10 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
     : null;
 
   if (!token) {
-    throw new HttpError(401, 'Please sign in to continue');
+    throw new HttpError(
+      401,
+      'Please sign in to continue'
+    );
   }
 
   let payload;
@@ -32,7 +35,6 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // Fetch the current user and session version
   const { rows: [user] } = await query(
     `SELECT id, name, email, token_version
      FROM users
@@ -41,10 +43,12 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
   );
 
   if (!user) {
-    throw new HttpError(401, 'Account no longer exists');
+    throw new HttpError(
+      401,
+      'Account no longer exists'
+    );
   }
 
-  // Reject old sessions after a password reset
   const tokenVersion = payload.tokenVersion ?? 0;
 
   if (tokenVersion !== user.token_version) {
@@ -54,40 +58,59 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
     );
   }
 
-  req.user = {
+  return {
     id: user.id,
     name: user.name,
     email: user.email,
   };
+}
 
-  next();
-});
+// ==========================================
+// AUTHENTICATION MIDDLEWARE
+// ==========================================
 
-/**
- * Loads the caller's project membership.
- * Non-members receive 404 to protect project privacy.
- */
-export const projectAccess = asyncHandler(async (req, res, next) => {
+export const requireAuth = asyncHandler(
+  async (req, res, next) => {
 
-  const { rows } = await query(
-    `SELECT role
-     FROM project_members
-     WHERE project_id = $1 AND user_id = $2`,
-    [req.params.projectId, req.user.id]
-  );
+    req.user = await validateSession(req);
 
-  if (!rows[0]) {
-    throw new HttpError(404, 'Project not found');
+    next();
+
   }
+);
 
-  req.membership = rows[0];
+// ==========================================
+// PROJECT MEMBERSHIP
+// ==========================================
 
-  next();
-});
+export const projectAccess = asyncHandler(
+  async (req, res, next) => {
 
-/**
- * Restricts sensitive project actions to the owner.
- */
+    const { rows } = await query(
+      `SELECT role
+       FROM project_members
+       WHERE project_id = $1 AND user_id = $2`,
+      [req.params.projectId, req.user.id]
+    );
+
+    if (!rows[0]) {
+      throw new HttpError(
+        404,
+        'Project not found'
+      );
+    }
+
+    req.membership = rows[0];
+
+    next();
+
+  }
+);
+
+// ==========================================
+// OWNER AUTHORIZATION
+// ==========================================
+
 export const ownerOnly = (req, res, next) =>
   req.membership.role === 'owner'
     ? next()

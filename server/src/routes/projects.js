@@ -7,6 +7,7 @@ import { computeStats } from '../utils/stats.js';
 import { emitToProject, closeProjectRoom } from '../realtime/socket.js';
 import membersRouter from './members.js';
 import tasksRouter from './tasks.js';
+import aiRouter from './ai.js';
 
 const router = Router();
 
@@ -83,5 +84,7 @@ scoped.get('/activity', asyncHandler(async (req, res) => {
 
 scoped.use('/members', membersRouter);
 scoped.use('/tasks', tasksRouter);
+scoped.use('/ai', aiRouter);
+
 
 export default router;

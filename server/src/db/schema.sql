@@ -187,6 +187,56 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expiry
 ON password_reset_tokens(expires_at);
+
+-- =====================================================
+-- Task Optimistic Concurrency Control
+-- =====================================================
+
+ALTER TABLE tasks
+ADD COLUMN IF NOT EXISTS version INTEGER
+NOT NULL DEFAULT 1 CHECK (version >= 1);
+
+
+-- Automatically increment the version when
+-- meaningful task details are modified.
+
+CREATE OR REPLACE FUNCTION increment_task_version()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF ROW(
+        NEW.title,
+        NEW.description,
+        NEW.status,
+        NEW.priority,
+        NEW.assignee_id,
+        NEW.due_date
+    ) IS DISTINCT FROM ROW(
+        OLD.title,
+        OLD.description,
+        OLD.status,
+        OLD.priority,
+        OLD.assignee_id,
+        OLD.due_date
+    ) THEN
+        NEW.version := OLD.version + 1;
+        NEW.updated_at := now();
+    ELSE
+        NEW.version := OLD.version;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+DROP TRIGGER IF EXISTS trg_task_version ON tasks;
+
+CREATE TRIGGER trg_task_version
+BEFORE UPDATE ON tasks
+FOR EACH ROW
+EXECUTE FUNCTION increment_task_version();
+
+
 -- Authentication session version
 ALTER TABLE users
 ADD COLUMN IF NOT EXISTS token_version INTEGER

@@ -1,85 +1,370 @@
+
 import { useEffect, useState } from 'react';
-import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, closestCorners, useSensor, useSensors } from '@dnd-kit/core';
-import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  closestCorners,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+
+import {
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+
 import Column from './Column.jsx';
 import { TaskCardView } from './TaskCard.jsx';
 import { STATUSES } from '../../lib/constants.js';
 
+
+// ==========================================
+// GROUP TASKS BY STATUS
+// ==========================================
+
 const group = (tasks) => {
-  const cols = Object.fromEntries(STATUSES.map((s) => [s.id, []]));
-  [...tasks].sort((a, b) => a.position - b.position).forEach((t) => cols[t.status]?.push(t));
+  const cols = Object.fromEntries(
+    STATUSES.map((status) => [status.id, []])
+  );
+
+  [...tasks]
+    .sort((a, b) => a.position - b.position)
+    .forEach((task) => {
+      cols[task.status]?.push(task);
+    });
+
   return cols;
 };
-const locate = (cols, id) => (id in cols ? id : Object.keys(cols).find((k) => cols[k].some((t) => t.id === id)));
 
-/**
- * Multi-column sortable board. While a card is being dragged the layout lives in local `cols`
- * state (so the card visibly hops between columns); when it is dropped we report the final
- * column + index to the parent, which persists it through the API.
- */
-export default function Board({ tasks, onMove, onOpen, onCreate, dragDisabled }) {
+
+// ==========================================
+// LOCATE TASK OR COLUMN
+// ==========================================
+
+const locate = (cols, id) =>
+  id in cols
+    ? id
+    : Object.keys(cols).find((key) =>
+        cols[key].some((task) => task.id === id)
+      );
+
+
+// ==========================================
+// KANBAN BOARD
+// ==========================================
+
+export default function Board({
+  tasks,
+  onMove,
+  onOpen,
+  onCreate,
+  dragDisabled,
+}) {
   const [cols, setCols] = useState(() => group(tasks));
   const [activeId, setActiveId] = useState(null);
 
-  // Re-sync from the source of truth (server/socket) whenever we are not mid-drag.
-  useEffect(() => { if (!activeId) setCols(group(tasks)); }, [tasks, activeId]);
+
+  // Re-sync with server and real-time socket updates
+  // whenever a task is not being dragged.
+
+  useEffect(() => {
+    if (!activeId) {
+      setCols(group(tasks));
+    }
+  }, [tasks, activeId]);
+
+
+  // ==========================================
+  // DRAG AND DROP SENSORS
+  // ==========================================
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 180,
+        tolerance: 8,
+      },
+    }),
+
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
   );
 
+
+  // ==========================================
+  // HANDLE CROSS-COLUMN DRAGGING
+  // ==========================================
+
   function handleDragOver({ active, over }) {
-    if (!over) return;
-    setCols((prev) => {
-      const from = locate(prev, active.id);
-      const to = locate(prev, over.id);
-      if (!from || !to || from === to) return prev;
-      const item = prev[from].find((t) => t.id === active.id);
-      const overIsColumn = over.id in prev;
-      const overIndex = overIsColumn ? prev[to].length : prev[to].findIndex((t) => t.id === over.id);
-      const below = !overIsColumn && active.rect.current.translated && active.rect.current.translated.top > over.rect.top + over.rect.height / 2;
+    if (!over || dragDisabled) return;
+
+    setCols((previous) => {
+      const from = locate(previous, active.id);
+      const to = locate(previous, over.id);
+
+      if (!from || !to || from === to) {
+        return previous;
+      }
+
+      const item = previous[from].find(
+        (task) => task.id === active.id
+      );
+
+      if (!item) return previous;
+
+      const overIsColumn = over.id in previous;
+
+      const overIndex = overIsColumn
+        ? previous[to].length
+        : previous[to].findIndex(
+            (task) => task.id === over.id
+          );
+
+      const below =
+        !overIsColumn &&
+        active.rect.current.translated &&
+        active.rect.current.translated.top >
+          over.rect.top + over.rect.height / 2;
+
       const at = overIndex + (below ? 1 : 0);
+
       return {
-        ...prev,
-        [from]: prev[from].filter((t) => t.id !== active.id),
-        [to]: [...prev[to].slice(0, at), { ...item, status: to }, ...prev[to].slice(at)],
+        ...previous,
+
+        [from]: previous[from].filter(
+          (task) => task.id !== active.id
+        ),
+
+        [to]: [
+          ...previous[to].slice(0, at),
+
+          {
+            ...item,
+            status: to,
+          },
+
+          ...previous[to].slice(at),
+        ],
       };
     });
   }
 
+
+  // ==========================================
+  // HANDLE DRAG CANCELLATION
+  // ==========================================
+
+  function handleDragCancel() {
+    setCols(group(tasks));
+    setActiveId(null);
+  }
+
+
+  // ==========================================
+  // HANDLE FINAL DROP
+  // ==========================================
+
   function handleDragEnd({ active, over }) {
+
+    // Restore the current server state when dropped
+    // outside the board or when dragging is disabled.
+
+    if (!over || dragDisabled) {
+      handleDragCancel();
+      return;
+    }
+
+    const original = tasks.find(
+      (task) => task.id === active.id
+    );
+
+    // The task may have been deleted by another user.
+
+    if (!original) {
+      handleDragCancel();
+      return;
+    }
+
     let next = cols;
-    if (over) {
-      const from = locate(cols, active.id);
-      const to = locate(cols, over.id);
-      if (from && from === to) {
-        const oldIndex = cols[from].findIndex((t) => t.id === active.id);
-        const newIndex = over.id in cols ? cols[to].length - 1 : cols[to].findIndex((t) => t.id === over.id);
-        if (oldIndex !== newIndex) next = { ...cols, [from]: arrayMove(cols[from], oldIndex, newIndex) };
+
+    const from = locate(cols, active.id);
+    const to = locate(cols, over.id);
+
+    if (!from || !to) {
+      handleDragCancel();
+      return;
+    }
+
+    if (from === to) {
+      const oldIndex = cols[from].findIndex(
+        (task) => task.id === active.id
+      );
+
+      const newIndex =
+        over.id in cols
+          ? cols[to].length - 1
+          : cols[to].findIndex(
+              (task) => task.id === over.id
+            );
+
+      if (
+        oldIndex >= 0 &&
+        newIndex >= 0 &&
+        oldIndex !== newIndex
+      ) {
+        next = {
+          ...cols,
+
+          [from]: arrayMove(
+            cols[from],
+            oldIndex,
+            newIndex
+          ),
+        };
       }
     }
+
+    const status = locate(next, active.id);
+
+    if (!status) {
+      handleDragCancel();
+      return;
+    }
+
+    const index = next[status].findIndex(
+      (task) => task.id === active.id
+    );
+
+    const originalIndex = group(tasks)[
+      original.status
+    ].findIndex(
+      (task) => task.id === active.id
+    );
+
     setCols(next);
     setActiveId(null);
 
-    const status = locate(next, active.id);
-    const index = next[status].findIndex((t) => t.id === active.id);
-    const original = tasks.find((t) => t.id === active.id);
-    const originalIndex = group(tasks)[original.status].findIndex((t) => t.id === active.id);
-    if (original.status !== status || originalIndex !== index) onMove(active.id, status, index, next);
+    // Persist only when the task position or status changes.
+
+    if (
+      original.status !== status ||
+      originalIndex !== index
+    ) {
+      onMove(
+        active.id,
+        status,
+        index,
+        next
+      );
+    }
   }
 
-  const activeTask = activeId ? tasks.find((t) => t.id === activeId) : null;
+
+  // ==========================================
+  // CURRENTLY DRAGGED TASK
+  // ==========================================
+
+  const activeTask = activeId
+    ? tasks.find((task) => task.id === activeId)
+    : null;
+
+
+  // ==========================================
+  // PREMIUM KANBAN LAYOUT
+  // ==========================================
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCorners}
-      onDragStart={({ active }) => setActiveId(active.id)} onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd} onDragCancel={() => setActiveId(null)}>
-      <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:overflow-visible sm:px-0">
-        {STATUSES.map((s) => <Column key={s.id} status={s} tasks={cols[s.id]} onOpen={onOpen} onCreate={onCreate} dragDisabled={dragDisabled} />)}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+
+      onDragStart={({ active }) => {
+        setActiveId(active.id);
+      }}
+
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+
+      {/* Custom board scrollbar */}
+
+      <style>{`
+        .pulse-kanban-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: #a4f3dc #ecfdf7;
+        }
+
+        .pulse-kanban-scroll::-webkit-scrollbar {
+          height: 7px;
+        }
+
+        .pulse-kanban-scroll::-webkit-scrollbar-track {
+          background: #ecfdf7;
+          border-radius: 10px;
+        }
+
+        .pulse-kanban-scroll::-webkit-scrollbar-thumb {
+          background: #a4f3dc;
+          border-radius: 10px;
+        }
+
+        .pulse-kanban-scroll::-webkit-scrollbar-thumb:hover {
+          background: #30d0ab;
+        }
+      `}</style>
+
+
+      {/* ==========================================
+          RESPONSIVE BOARD CONTAINER
+          ========================================== */}
+
+      <div
+        className="pulse-kanban-scroll -mx-4 flex min-w-0 snap-x items-start gap-4 overflow-x-auto px-4 pb-5 pt-2 sm:mx-0 sm:px-0 xl:gap-5"
+      >
+
+        {STATUSES.map((status) => (
+          <Column
+            key={status.id}
+            status={status}
+            tasks={cols[status.id]}
+            onOpen={onOpen}
+            onCreate={onCreate}
+            dragDisabled={dragDisabled}
+          />
+        ))}
+
       </div>
-      <DragOverlay>{activeTask && <TaskCardView task={activeTask} overlay />}</DragOverlay>
+
+
+      {/* ==========================================
+          FLOATING DRAG PREVIEW
+          ========================================== */}
+
+      <DragOverlay>
+        {activeTask && (
+          <div className="rotate-2 cursor-grabbing rounded-xl shadow-2xl ring-2 ring-pulse-400 motion-reduce:transform-none">
+
+            <TaskCardView
+              task={activeTask}
+              overlay
+            />
+
+          </div>
+        )}
+      </DragOverlay>
+
     </DndContext>
   );
 }

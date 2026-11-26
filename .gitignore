@@ -1,5 +1,27 @@
-node_modules
-dist
+# Dependencies
+node_modules/
+
+# Production builds
+dist/
+build/
+
+# Environment variables and secrets
 .env
+.env.*
+!.env.example
+
+# Logs
 *.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# Operating system files
 .DS_Store
+Thumbs.db
+
+# Temporary AI testing scripts
+server/test-ai-context.js
+server/test-ai-fallback.js
+server/test-ai-timeout.js

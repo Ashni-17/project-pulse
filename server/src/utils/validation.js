@@ -93,8 +93,20 @@ export const createTaskSchema = z.object({
   dueDate: taskFields.dueDate.optional(),
 });
 
-export const updateTaskSchema = z.object(taskFields).partial()
-  .refine((o) => Object.keys(o).length > 0, 'Nothing to update');
+export const updateTaskSchema = z.object({
+  ...taskFields,
+
+  expectedVersion: z.number()
+    .int()
+    .min(1, 'Invalid task version')
+    .max(2147483647),
+}).partial()
+  .refine(
+    (data) => Object.keys(taskFields).some(
+      (key) => Object.hasOwn(data, key)
+    ),
+    'Nothing to update'
+  );
 
 export const moveTaskSchema = z.object({
   status: taskFields.status,
@@ -149,3 +161,41 @@ export const resetPasswordSchema = z.object({
     path: ['confirmPassword'],
   }
 );
+
+// ==========================================
+// PULSE AI REQUEST VALIDATION
+// ==========================================
+
+// Smart Planner
+export const aiPlannerSchema = z.object({
+  mode: z.enum([
+    'project',
+    'natural',
+    'meeting',
+  ]).default('project'),
+
+  prompt: z.string()
+    .trim()
+    .min(3, 'Please enter a meaningful instruction')
+    .max(10000, 'Instruction is too long'),
+}).strict();
+
+
+// Project Intelligence
+export const aiIntelligenceSchema = z.object({})
+  .strict();
+
+
+// Smart Assignment
+export const aiAssignmentSchema = z.object({
+  taskId: uuid,
+}).strict();
+
+
+// Ask Pulse AI
+export const aiQuestionSchema = z.object({
+  question: z.string()
+    .trim()
+    .min(3, 'Please enter a meaningful question')
+    .max(1000, 'Question is too long'),
+}).strict();

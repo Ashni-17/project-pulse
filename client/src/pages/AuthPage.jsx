@@ -10,31 +10,83 @@ import {
   ArrowLeft,
   Clock,
 } from 'lucide-react';
+
 import { useAuth } from '../context/AuthContext.jsx';
 import { Field, Logo, Spinner } from '../components/ui';
 import clsx from 'clsx';
 
+// ==========================================
+// ANIMATED HEARTBEAT
+// ==========================================
+
 function PulseLine() {
+  const pulsePath =
+    'M0 42 H85 L97 32 L109 42 H132 L145 54 L160 8 L177 74 L193 25 L207 42 H245 L258 30 L273 42 H400';
+
   return (
-    <svg
-      viewBox="0 0 400 80"
-      className="w-full max-w-md"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M0 42h120l16-30 28 62 24-48 14 16h198"
-        stroke="#30d0ab"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeDasharray="120"
-        className="animate-beat"
-        pathLength="120"
-      />
-    </svg>
+    <>
+      <style>{`
+        @keyframes auth-heartbeat-travel {
+          from {
+            stroke-dashoffset: 24;
+          }
+          to {
+            stroke-dashoffset: -76;
+          }
+        }
+
+        .auth-pulse-heartbeat {
+          animation: auth-heartbeat-travel 3s linear infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .auth-pulse-heartbeat {
+            animation: none;
+            stroke-dasharray: none;
+          }
+        }
+      `}</style>
+
+      <svg
+        viewBox="0 0 400 80"
+        className="w-full max-w-md overflow-visible"
+        fill="none"
+        aria-hidden="true"
+      >
+        {/* Background heartbeat line */}
+
+        <path
+          d={pulsePath}
+          stroke="#30d0ab"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity="0.15"
+        />
+
+        {/* Animated heartbeat line */}
+
+        <path
+          d={pulsePath}
+          pathLength="100"
+          stroke="#69e6c6"
+          strokeWidth="2.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray="24 76"
+          className="auth-pulse-heartbeat"
+          style={{
+            filter: 'drop-shadow(0 0 5px #30d0ab)',
+          }}
+        />
+      </svg>
+    </>
   );
 }
+
+// ==========================================
+// INITIAL FORM
+// ==========================================
 
 const emptyForm = {
   name: '',
@@ -51,6 +103,10 @@ function formatTime(seconds) {
     remaining
   ).padStart(2, '0')}`;
 }
+
+// ==========================================
+// PASSWORD FIELD
+// ==========================================
 
 function PasswordField({
   label,
@@ -79,15 +135,25 @@ function PasswordField({
         <button
           type="button"
           onClick={() => setVisible(!visible)}
-          aria-label={visible ? 'Hide password' : 'Show password'}
+          aria-label={
+            visible ? 'Hide password' : 'Show password'
+          }
           className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-500 hover:text-pulse-700"
         >
-          {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+          {visible ? (
+            <EyeOff size={18} />
+          ) : (
+            <Eye size={18} />
+          )}
         </button>
       </div>
     </Field>
   );
 }
+
+// ==========================================
+// PASSWORD STRENGTH
+// ==========================================
 
 function PasswordStrength({ password }) {
   if (!password) return null;
@@ -144,17 +210,21 @@ function PasswordStrength({ password }) {
   );
 }
 
+// ==========================================
+// AUTHENTICATION PAGE
+// ==========================================
+
 export default function AuthPage({ mode }) {
   const isRegister = mode === 'register';
 
   const {
-  login,
-  register,
-  verifyOTP,
-  resendOTP,
-  sessionMessage,
-  clearSessionMessage,
-} = useAuth();
+    login,
+    register,
+    verifyOTP,
+    resendOTP,
+    sessionMessage,
+    clearSessionMessage,
+  } = useAuth();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -184,7 +254,10 @@ export default function AuthPage({ mode }) {
     Math.ceil((resendAt - now) / 1000)
   );
 
-  // Reset form when switching between login and signup.
+  // ==========================================
+  // RESET FORM
+  // ==========================================
+
   useEffect(() => {
     setForm({
       ...emptyForm,
@@ -200,7 +273,10 @@ export default function AuthPage({ mode }) {
     setResendAt(0);
   }, [mode, location.key]);
 
-  // OTP countdown timer.
+  // ==========================================
+  // OTP COUNTDOWN
+  // ==========================================
+
   useEffect(() => {
     if (!isOTP) return;
 
@@ -227,13 +303,19 @@ export default function AuthPage({ mode }) {
     const current = Date.now();
 
     setNow(current);
+
     setExpiryAt(
       current + (data.expiresIn ?? 300) * 1000
     );
+
     setResendAt(
       current + (data.resendAfter ?? 60) * 1000
     );
   }
+
+  // ==========================================
+  // LOGIN, REGISTER AND OTP VERIFICATION
+  // ==========================================
 
   async function submit(event) {
     event.preventDefault();
@@ -252,16 +334,23 @@ export default function AuthPage({ mode }) {
       setErrors({
         confirmPassword: ['Passwords do not match'],
       });
+
       return;
     }
 
     if (isOTP && !/^\d{6}$/.test(otp)) {
-      setMessage('Enter a valid six-digit verification code.');
+      setMessage(
+        'Enter a valid six-digit verification code.'
+      );
+
       return;
     }
 
     if (isOTP && expiry === 0) {
-      setMessage('Your code has expired. Request a new code.');
+      setMessage(
+        'Your code has expired. Request a new code.'
+      );
+
       return;
     }
 
@@ -278,7 +367,8 @@ export default function AuthPage({ mode }) {
           replace: true,
           state: {
             email: registration.email,
-            success: 'Email verified successfully! You can now sign in.',
+            success:
+              'Email verified successfully! You can now sign in.',
           },
         });
       } else if (isRegister) {
@@ -288,7 +378,8 @@ export default function AuthPage({ mode }) {
         setOtp('');
         startTimers(data);
 
-        // Remove passwords from the form after OTP is sent.
+        // Remove passwords after OTP is sent.
+
         setForm((previous) => ({
           ...previous,
           password: '',
@@ -308,11 +399,18 @@ export default function AuthPage({ mode }) {
       }
     } catch (err) {
       setErrors(err.details || {});
-      setMessage(err.message || 'Something went wrong.');
+
+      setMessage(
+        err.message || 'Something went wrong.'
+      );
     } finally {
       setBusy(false);
     }
   }
+
+  // ==========================================
+  // RESEND OTP
+  // ==========================================
 
   async function handleResend() {
     if (!registration || cooldown > 0 || busy) return;
@@ -352,389 +450,474 @@ export default function AuthPage({ mode }) {
     setResendAt(0);
   }
 
+  // ==========================================
+  // PREMIUM AUTHENTICATION LAYOUT
+  // ==========================================
+
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-pulse-900 via-pulse-800 to-pulse-600 p-3 sm:p-6 lg:p-8">
 
-      {/* Branding section */}
-      <aside className="hidden flex-col justify-between bg-ink-950 p-12 text-white lg:flex">
+      {/* Floating authentication container */}
 
-        <div className="flex items-center gap-3">
-          <Logo size={38} />
-          <span className="font-display text-2xl font-bold">
-            Pulse
-          </span>
-        </div>
+      <div className="grid w-full max-w-[1440px] rounded-[28px] bg-ink-50 p-2 shadow-2xl sm:p-3 lg:min-h-[calc(100vh-64px)] lg:grid-cols-[1.05fr_1fr]">
 
-        <div>
-          {/* <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-ink-300">
-            <span className="h-2 w-2 rounded-full bg-teal-400" />
-            Real-time project collaboration
-          </div> */}
+        {/* ==========================================
+            BRANDING SECTION
+            ========================================== */}
 
-          <PulseLine />
+        <aside className="relative hidden flex-col justify-between overflow-hidden rounded-[22px] bg-gradient-to-br from-ink-950 via-pulse-900 to-pulse-800 p-10 text-white lg:flex xl:p-12">
 
-          <h1 className="mt-8 max-w-lg font-display text-5xl font-bold leading-tight">
-            Great teamwork starts with a pulse.
-          </h1>
+          {/* Existing logo */}
 
-          <p className="mt-5 max-w-md text-base leading-relaxed text-ink-300">
-            Plan projects, collaborate in real time, and keep
-            your entire team moving towards the same goal.
-          </p>
+          <div className="flex items-center gap-3">
+            <Logo size={38} />
 
-        </div>
-
-        <div className="text-sm text-ink-500">
-          Project Pulse | Plan. Collaborate. Deliver.
-        </div>
-      </aside>
-
-      {/* Authentication section */}
-      <main className="flex items-center justify-center px-5 py-10 sm:px-10">
-
-        <form
-          onSubmit={submit}
-          className="w-full max-w-md space-y-5"
-          noValidate
-        >
-          <div className="mb-6 flex items-center gap-2.5 lg:hidden">
-            <Logo />
-            <span className="font-display text-xl font-bold">
+            <span className="font-display text-2xl font-bold">
               Pulse
             </span>
           </div>
 
-          {isOTP && (
-            <button
-              type="button"
-              onClick={backToRegister}
-              disabled={busy}
-              className="flex items-center gap-2 text-sm text-ink-500 hover:text-pulse-700"
-            >
-              <ArrowLeft size={16} />
-              Back to registration
-            </button>
-          )}
+          {/* Existing branding content */}
 
-          {isOTP && (
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
-              <MailCheck size={32} />
-            </div>
-          )}
+          <div>
+            <PulseLine />
 
-          <div className="space-y-2">
-            <h2 className="font-display text-3xl font-bold">
-              {isOTP
-                ? 'Verify your email'
-                : isRegister
-                  ? 'Create your account'
-                  : 'Welcome back'}
-            </h2>
+            <h1 className="mt-8 max-w-lg font-display text-5xl font-bold leading-tight">
+              Great teamwork starts with a pulse.
+            </h1>
 
-            <p className="text-sm leading-relaxed text-ink-500">
-              {isOTP
-                ? 'Enter the six-digit verification code sent to your email address.'
-                : isRegister
-                  ? 'Start organizing work with your team.'
-                  : 'Sign in to pick up where you left off.'}
+            <p className="mt-5 max-w-md text-base leading-relaxed text-ink-300">
+              Plan projects, collaborate in real time, and keep
+              your entire team moving towards the same goal.
             </p>
           </div>
-          {!isRegister && sessionMessage && (
-  <div
-    role="alert"
-    className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800"
-  >
-    <ShieldCheck
-      size={20}
-      className="mt-0.5 shrink-0"
-    />
 
-    <div className="flex-1">
-      <p className="text-sm font-semibold">
-        Session ended
-      </p>
+          <div className="text-sm text-ink-500">
+            Project Pulse | Plan. Collaborate. Deliver.
+          </div>
+        </aside>
 
-      <p className="mt-1 text-sm">
-        {sessionMessage}
-      </p>
-    </div>
+        {/* ==========================================
+            AUTHENTICATION SECTION
+            ========================================== */}
 
-    <button
-      type="button"
-      onClick={clearSessionMessage}
-      className="text-xs font-semibold hover:underline"
-    >
-      Dismiss
-    </button>
-  </div>
-)}
+        <main className="flex min-w-0 items-center justify-center rounded-[22px] px-5 py-10 sm:px-10 lg:px-12">
 
-          {message && (
-            <p
-              role="alert"
-              className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700"
-            >
-              {message}
-            </p>
-          )}
+          {/* Existing form design preserved */}
 
-          {success && (
-            <div
-              role="status"
-              className="flex items-start gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-            >
-              <CheckCircle2
-                size={18}
-                className="mt-0.5 shrink-0"
-              />
-              <span>{success}</span>
+          <form
+            onSubmit={submit}
+            className="w-full max-w-md space-y-5"
+            noValidate
+          >
+
+            {/* Mobile logo */}
+
+            <div className="mb-6 flex items-center gap-2.5 lg:hidden">
+              <Logo />
+
+              <span className="font-display text-xl font-bold">
+                Pulse
+              </span>
             </div>
-          )}
 
-          {isOTP ? (
-            <>
-              <div className="break-all rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium">
-                {registration.email}
-              </div>
+            {/* Back to registration */}
 
-              <Field
-                label="Verification code"
-                error={errors.otp?.[0]}
-              >
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                  autoFocus
-                  placeholder="000000"
-                  value={otp}
-                  onChange={(event) =>
-                    setOtp(
-                      event.target.value
-                        .replace(/\D/g, '')
-                        .slice(0, 6)
-                    )
-                  }
-                  className={clsx(
-                    'input text-center !text-2xl font-bold tracking-[0.4em]',
-                    errors.otp && 'input-error'
-                  )}
-                />
-              </Field>
-
-              <div className="flex items-center justify-center gap-2 text-sm">
-                <Clock size={16} />
-
-                {expiry > 0 ? (
-                  <span className="text-ink-500">
-                    Code expires in{' '}
-                    <strong>{formatTime(expiry)}</strong>
-                  </span>
-                ) : (
-                  <span className="font-medium text-rose-600">
-                    Verification code expired
-                  </span>
-                )}
-              </div>
-
+            {isOTP && (
               <button
-                type="submit"
-                className="btn btn-primary w-full !py-3"
-                disabled={busy || otp.length !== 6 || expiry === 0}
+                type="button"
+                onClick={backToRegister}
+                disabled={busy}
+                className="flex items-center gap-2 text-sm text-ink-500 hover:text-pulse-700"
               >
-                {busy && <Spinner className="!text-white" />}
-                Verify email
-              </button>
+                <ArrowLeft size={16} />
 
-              <div className="text-center text-sm text-ink-500">
-                Didn't receive the code?{' '}
+                Back to registration
+              </button>
+            )}
+
+            {/* OTP verification icon */}
+
+            {isOTP && (
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
+                <MailCheck size={32} />
+              </div>
+            )}
+
+            {/* Existing form heading */}
+
+            <div className="space-y-2">
+              <h2 className="font-display text-3xl font-bold">
+                {isOTP
+                  ? 'Verify your email'
+                  : isRegister
+                    ? 'Create your account'
+                    : 'Welcome back'}
+              </h2>
+
+              <p className="text-sm leading-relaxed text-ink-500">
+                {isOTP
+                  ? 'Enter the six-digit verification code sent to your email address.'
+                  : isRegister
+                    ? 'Start organizing work with your team.'
+                    : 'Sign in to pick up where you left off.'}
+              </p>
+            </div>
+
+            {/* Session security message */}
+
+            {!isRegister && sessionMessage && (
+              <div
+                role="alert"
+                className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800"
+              >
+                <ShieldCheck
+                  size={20}
+                  className="mt-0.5 shrink-0"
+                />
+
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">
+                    Session ended
+                  </p>
+
+                  <p className="mt-1 text-sm">
+                    {sessionMessage}
+                  </p>
+                </div>
 
                 <button
                   type="button"
-                  disabled={cooldown > 0 || busy}
-                  onClick={handleResend}
-                  className="font-semibold text-pulse-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={clearSessionMessage}
+                  className="text-xs font-semibold hover:underline"
                 >
-                  {cooldown > 0
-                    ? `Resend in ${cooldown}s`
-                    : 'Resend OTP'}
+                  Dismiss
                 </button>
               </div>
-            </>
-          ) : (
-            <>
-              {isRegister && (
+            )}
+
+            {/* Error message */}
+
+            {message && (
+              <p
+                role="alert"
+                className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700"
+              >
+                {message}
+              </p>
+            )}
+
+            {/* Success message */}
+
+            {success && (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+              >
+                <CheckCircle2
+                  size={18}
+                  className="mt-0.5 shrink-0"
+                />
+
+                <span>{success}</span>
+              </div>
+            )}
+
+            {/* ==========================================
+                OTP VERIFICATION FORM
+                ========================================== */}
+
+            {isOTP ? (
+              <>
+                <div className="break-all rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium">
+                  {registration.email}
+                </div>
+
                 <Field
-                  label="Full name"
-                  error={errors.name?.[0]}
+                  label="Verification code"
+                  error={errors.otp?.[0]}
                 >
                   <input
-                    className={clsx(
-                      'input',
-                      errors.name && 'input-error'
-                    )}
-                    value={form.name}
-                    onChange={set('name')}
-                    autoComplete="name"
-                    placeholder="Enter your full name"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
                     autoFocus
+                    placeholder="000000"
+                    value={otp}
+                    onChange={(event) =>
+                      setOtp(
+                        event.target.value
+                          .replace(/\D/g, '')
+                          .slice(0, 6)
+                      )
+                    }
+                    className={clsx(
+                      'input text-center !text-2xl font-bold tracking-[0.4em]',
+                      errors.otp && 'input-error'
+                    )}
                   />
                 </Field>
-              )}
 
-              <Field
-                label="Email address"
-                error={errors.email?.[0]}
-              >
-                <input
-                  type="email"
-                  className={clsx(
-                    'input',
-                    errors.email && 'input-error'
+                {/* OTP expiry timer */}
+
+                <div className="flex items-center justify-center gap-2 text-sm">
+                  <Clock size={16} />
+
+                  {expiry > 0 ? (
+                    <span className="text-ink-500">
+                      Code expires in{' '}
+                      <strong>{formatTime(expiry)}</strong>
+                    </span>
+                  ) : (
+                    <span className="font-medium text-rose-600">
+                      Verification code expired
+                    </span>
                   )}
-                  value={form.email}
-                  onChange={set('email')}
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  autoFocus={!isRegister}
-                />
-              </Field>
+                </div>
 
-              <PasswordField
-                label="Password"
-                value={form.password}
-                onChange={set('password')}
-                error={errors.password?.[0]}
-                autoComplete={
-                  isRegister
-                    ? 'new-password'
-                    : 'current-password'
-                }
-              />
-              {!isRegister && (
-  <div className="flex justify-end">
-    <Link
-      to="/forgot-password"
-      className="text-sm font-semibold text-teal-600 hover:text-teal-700 hover:underline"
-    >
-      Forgot password?
-    </Link>
-  </div>
-)}
+                {/* Verify email button */}
 
-              {isRegister && (
-                <>
-                  <PasswordStrength
-                    password={form.password}
-                  />
-
-                  <PasswordField
-                    label="Confirm password"
-                    value={form.confirmPassword}
-                    onChange={set('confirmPassword')}
-                    error={errors.confirmPassword?.[0]}
-                    autoComplete="new-password"
-                  />
-
-                  {form.confirmPassword &&
-                    form.password === form.confirmPassword && (
-                      <p className="flex items-center gap-1.5 text-xs text-emerald-600">
-                        <CheckCircle2 size={14} />
-                        Passwords match
-                      </p>
-                    )}
-                </>
-              )}
-
-              <button
-                type="submit"
-                className="btn btn-primary w-full !py-3"
-                disabled={busy}
-              >
-                {busy && <Spinner className="!text-white" />}
-
-                {isRegister
-                  ? 'Create account'
-                  : 'Sign in'}
-              </button>
-             {!isOTP && (
-  <>
-    <div className="flex items-center gap-4 my-5">
-      <div className="flex-1 border-t border-slate-200" />
-
-      <span className="text-xs text-slate-400">
-        OR CONTINUE WITH
-      </span>
-
-      <div className="flex-1 border-t border-slate-200" />
-    </div>
-
-    <button
-      type="button"
-      disabled={busy}
-      onClick={() => {
-        window.location.href =
-          `${import.meta.env.VITE_SERVER_URL || 'http://localhost:4000'}/api/auth/google`;
-      }}
-      className="flex w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md disabled:opacity-50"
-    >
-      <svg
-        className="h-5 w-5"
-        viewBox="0 0 48 48"
-        aria-hidden="true"
-      >
-        <path
-          fill="#4285F4"
-          d="M43.61 24.46c0-1.36-.12-2.67-.34-3.94H24v7.45h11.02a9.42 9.42 0 0 1-4.08 6.18v5.14h6.62c3.87-3.56 6.05-8.8 6.05-14.83z"
-        />
-
-        <path
-          fill="#34A853"
-          d="M24 44c5.51 0 10.13-1.83 13.5-4.96l-6.62-5.14c-1.83 1.23-4.17 1.97-6.88 1.97-5.32 0-9.83-3.59-11.45-8.42H5.72v5.3A20 20 0 0 0 24 44z"
-        />
-
-        <path
-          fill="#FBBC05"
-          d="M12.55 27.45a12.04 12.04 0 0 1 0-6.9v-5.3H5.72a20 20 0 0 0 0 17.5l6.83-5.3z"
-        />
-
-        <path
-          fill="#EA4335"
-          d="M24 12.13c3 0 5.69 1.03 7.81 3.06l5.86-5.86C34.12 6.02 29.51 4 24 4A20 20 0 0 0 5.72 15.25l6.83 5.3C14.17 15.72 18.68 12.13 24 12.13z"
-        />
-      </svg>
-
-      Continue with Google
-    </button>
-  </>
-)}
-
-              <p className="text-center text-sm text-ink-500">
-                {isRegister
-                  ? 'Already have an account?'
-                  : 'New to Pulse?'}{' '}
-
-                <Link
-                  className="font-semibold text-pulse-700 hover:underline"
-                  to={isRegister ? '/login' : '/register'}
+                <button
+                  type="submit"
+                  className="btn btn-primary w-full !py-3"
+                  disabled={
+                    busy ||
+                    otp.length !== 6 ||
+                    expiry === 0
+                  }
                 >
-                  {isRegister
-                    ? 'Sign in'
-                    : 'Create an account'}
-                </Link>
-              </p>
-            </>
-          )}
+                  {busy && (
+                    <Spinner className="!text-white" />
+                  )}
 
-          <div className="flex items-center justify-center gap-2 border-t border-slate-200 pt-5 text-xs text-ink-500">
-            <ShieldCheck size={16} className="text-teal-600" />
-            {isRegister
-              ? 'Email verification helps protect your account'
-              : 'Sign in to your Project Pulse workspace'}
-          </div>
-        </form>
-      </main>
+                  Verify email
+                </button>
+
+                {/* Resend OTP */}
+
+                <div className="text-center text-sm text-ink-500">
+                  Didn't receive the code?{' '}
+
+                  <button
+                    type="button"
+                    disabled={cooldown > 0 || busy}
+                    onClick={handleResend}
+                    className="font-semibold text-pulse-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {cooldown > 0
+                      ? `Resend in ${cooldown}s`
+                      : 'Resend OTP'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* ==========================================
+                    LOGIN AND REGISTER FORM
+                    ========================================== */}
+
+                {isRegister && (
+                  <Field
+                    label="Full name"
+                    error={errors.name?.[0]}
+                  >
+                    <input
+                      className={clsx(
+                        'input',
+                        errors.name && 'input-error'
+                      )}
+                      value={form.name}
+                      onChange={set('name')}
+                      autoComplete="name"
+                      placeholder="Enter your full name"
+                      autoFocus
+                    />
+                  </Field>
+                )}
+
+                {/* Email address */}
+
+                <Field
+                  label="Email address"
+                  error={errors.email?.[0]}
+                >
+                  <input
+                    type="email"
+                    className={clsx(
+                      'input',
+                      errors.email && 'input-error'
+                    )}
+                    value={form.email}
+                    onChange={set('email')}
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    autoFocus={!isRegister}
+                  />
+                </Field>
+
+                {/* Password */}
+
+                <PasswordField
+                  label="Password"
+                  value={form.password}
+                  onChange={set('password')}
+                  error={errors.password?.[0]}
+                  autoComplete={
+                    isRegister
+                      ? 'new-password'
+                      : 'current-password'
+                  }
+                />
+
+                {/* Forgot password */}
+
+                {!isRegister && (
+                  <div className="flex justify-end">
+                    <Link
+                      to="/forgot-password"
+                      className="text-sm font-semibold text-teal-600 hover:text-teal-700 hover:underline"
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
+                )}
+
+                {/* Registration password validation */}
+
+                {isRegister && (
+                  <>
+                    <PasswordStrength
+                      password={form.password}
+                    />
+
+                    <PasswordField
+                      label="Confirm password"
+                      value={form.confirmPassword}
+                      onChange={set('confirmPassword')}
+                      error={errors.confirmPassword?.[0]}
+                      autoComplete="new-password"
+                    />
+
+                    {form.confirmPassword &&
+                      form.password ===
+                        form.confirmPassword && (
+                        <p className="flex items-center gap-1.5 text-xs text-emerald-600">
+                          <CheckCircle2 size={14} />
+
+                          Passwords match
+                        </p>
+                      )}
+                  </>
+                )}
+
+                {/* Sign in / Create account */}
+
+                <button
+                  type="submit"
+                  className="btn btn-primary w-full !py-3"
+                  disabled={busy}
+                >
+                  {busy && (
+                    <Spinner className="!text-white" />
+                  )}
+
+                  {isRegister
+                    ? 'Create account'
+                    : 'Sign in'}
+                </button>
+
+                {/* ==========================================
+                    GOOGLE AUTHENTICATION
+                    ========================================== */}
+
+                {!isOTP && (
+                  <>
+                    <div className="flex items-center gap-4 my-5">
+                      <div className="flex-1 border-t border-slate-200" />
+
+                      <span className="text-xs text-slate-400">
+                        OR CONTINUE WITH
+                      </span>
+
+                      <div className="flex-1 border-t border-slate-200" />
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        window.location.href =
+                          `${import.meta.env.VITE_SERVER_URL || 'http://localhost:4000'}/api/auth/google`;
+                      }}
+                      className="flex w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md disabled:opacity-50"
+                    >
+                      <svg
+                        className="h-5 w-5"
+                        viewBox="0 0 48 48"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fill="#4285F4"
+                          d="M43.61 24.46c0-1.36-.12-2.67-.34-3.94H24v7.45h11.02a9.42 9.42 0 0 1-4.08 6.18v5.14h6.62c3.87-3.56 6.05-8.8 6.05-14.83z"
+                        />
+
+                        <path
+                          fill="#34A853"
+                          d="M24 44c5.51 0 10.13-1.83 13.5-4.96l-6.62-5.14c-1.83 1.23-4.17 1.97-6.88 1.97-5.32 0-9.83-3.59-11.45-8.42H5.72v5.3A20 20 0 0 0 24 44z"
+                        />
+
+                        <path
+                          fill="#FBBC05"
+                          d="M12.55 27.45a12.04 12.04 0 0 1 0-6.9v-5.3H5.72a20 20 0 0 0 0 17.5l6.83-5.3z"
+                        />
+
+                        <path
+                          fill="#EA4335"
+                          d="M24 12.13c3 0 5.69 1.03 7.81 3.06l5.86-5.86C34.12 6.02 29.51 4 24 4A20 20 0 0 0 5.72 15.25l6.83 5.3C14.17 15.72 18.68 12.13 24 12.13z"
+                        />
+                      </svg>
+
+                      Continue with Google
+                    </button>
+                  </>
+                )}
+
+                {/* Switch between login and register */}
+
+                <p className="text-center text-sm text-ink-500">
+                  {isRegister
+                    ? 'Already have an account?'
+                    : 'New to Pulse?'}{' '}
+
+                  <Link
+                    className="font-semibold text-pulse-700 hover:underline"
+                    to={isRegister ? '/login' : '/register'}
+                  >
+                    {isRegister
+                      ? 'Sign in'
+                      : 'Create an account'}
+                  </Link>
+                </p>
+              </>
+            )}
+
+            {/* Security footer */}
+
+            <div className="flex items-center justify-center gap-2 border-t border-slate-200 pt-5 text-xs text-ink-500">
+              <ShieldCheck
+                size={16}
+                className="text-teal-600"
+              />
+
+              {isRegister
+                ? 'Email verification helps protect your account'
+                : 'Sign in to your Project Pulse workspace'}
+            </div>
+
+          </form>
+        </main>
+      </div>
     </div>
   );
 }
