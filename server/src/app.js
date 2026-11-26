@@ -8,6 +8,8 @@ import { errorHandler, notFound } from './middleware/error.js';
 import authRouter from './routes/auth.js';
 import dashboardRouter from './routes/dashboard.js';
 import projectsRouter from './routes/projects.js';
+import googleAuthRouter from './routes/googleAuth.js';
+import passwordResetRouter from './routes/passwordReset.js';
 
 const app = express();
 
@@ -21,6 +23,8 @@ if (env.nodeEnv !== 'test') {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRouter);
+app.use('/api/auth', googleAuthRouter);
+app.use('/api/auth', passwordResetRouter);
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/projects', requireAuth, projectsRouter);
 

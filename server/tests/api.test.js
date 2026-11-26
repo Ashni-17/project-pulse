@@ -1,6 +1,23 @@
 // Integration test of the spec's Alice/Bob workflow. Requires DATABASE_URL (run `npm run migrate` first).
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
+
+const { verificationCodes, resetCodes } = vi.hoisted(() => ({
+  verificationCodes: new Map(),
+  resetCodes: new Map(),
+}));
+
+vi.mock('../src/services/email.js', () => ({
+  verifyEmailConnection: vi.fn(async () => true),
+
+  sendVerificationEmail: vi.fn(async (email, otp) => {
+    verificationCodes.set(email, otp);
+  }),
+
+  sendPasswordResetEmail: vi.fn(async (email, otp) => {
+    resetCodes.set(email, otp);
+  }),
+}));
 
 process.env.JWT_SECRET ||= 'test-secret';
 process.env.NODE_ENV = 'test';
@@ -13,19 +30,89 @@ describe.skipIf(!process.env.DATABASE_URL)('Project Pulse API', () => {
   let projectId, taskId;
 
   beforeAll(async () => {
-    app = (await import('../src/app.js')).default;
-    pool = (await import('../src/config/db.js')).pool;
-    for (const name of ['alice', 'bob', 'eve']) {
-      const res = await request(app).post('/api/auth/register').send({ name: `${name} tester`, email: `${name}.${run}@test.dev`, password: 'Secret123' });
-      expect(res.status).toBe(201);
-      users[name] = { ...res.body.user, token: res.body.token };
-    }
-  });
+  const databaseUrl = new URL(process.env.DATABASE_URL);
+
+  if (databaseUrl.pathname !== '/project_pulse_test') {
+    throw new Error(
+      'Safety check failed: Tests must use project_pulse_test database'
+    );
+  }
+
+  app = (await import('../src/app.js')).default;
+  pool = (await import('../src/config/db.js')).pool;
+
+  for (const name of ['alice', 'bob', 'eve']) {
+    const email = `${name}.${run}@test.dev`;
+    const password = 'Secret123';
+
+    // Step 1: Register
+    const registration = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: `${name} tester`,
+        email,
+        password,
+        confirmPassword: password,
+      });
+
+    expect(registration.status).toBe(202);
+    expect(registration.body.registrationId).toBeTruthy();
+
+    // Step 2: Retrieve generated OTP from mocked email
+    const otp = verificationCodes.get(email);
+
+    expect(otp).toMatch(/^\d{6}$/);
+
+    // Step 3: Verify email OTP
+    const verification = await request(app)
+      .post('/api/auth/verify-otp')
+      .send({
+        registrationId: registration.body.registrationId,
+        otp,
+      });
+
+    expect(verification.status).toBe(201);
+
+    // Step 4: Login
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({
+        email,
+        password,
+      });
+
+    expect(login.status).toBe(200);
+    expect(login.body.token).toBeTruthy();
+
+    users[name] = {
+      ...login.body.user,
+      token: login.body.token,
+    };
+  }
+});
 
   afterAll(async () => {
-    await pool.query('DELETE FROM users WHERE email LIKE $1', [`%.${run}@test.dev`]);
-    await pool.end();
-  });
+  try {
+    if (pool) {
+      await pool.query(
+        'DELETE FROM pending_registrations WHERE email LIKE $1',
+        [`%.${run}@test.dev`]
+      );
+
+      await pool.query(
+        'DELETE FROM users WHERE email LIKE $1',
+        [`%.${run}@test.dev`]
+      );
+    }
+  } finally {
+    verificationCodes.clear();
+    resetCodes.clear();
+
+    if (pool) {
+      await pool.end();
+    }
+  }
+});
 
   it('rejects unauthenticated access and invalid registration input', async () => {
     expect((await request(app).get('/api/projects')).status).toBe(401);
@@ -97,4 +184,200 @@ describe.skipIf(!process.env.DATABASE_URL)('Project Pulse API', () => {
     expect((await q('status=todo')).body.tasks).toHaveLength(0);
     expect((await q(`assignee=${users.bob.id}`)).body.tasks).toHaveLength(1);
   });
+  it('requires email verification before login and prevents OTP reuse', async () => {
+  const email = `verification.${run}@test.dev`;
+  const password = 'Secret123';
+
+  const registration = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Verification Tester',
+      email,
+      password,
+      confirmPassword: password,
+    });
+
+  expect(registration.status).toBe(202);
+  expect(registration.body.registrationId).toBeTruthy();
+
+  const registrationId = registration.body.registrationId;
+  const otp = verificationCodes.get(email);
+
+  expect(otp).toMatch(/^\d{6}$/);
+
+  // Login before email verification must fail
+  const beforeVerification = await request(app)
+    .post('/api/auth/login')
+    .send({ email, password });
+
+  expect(beforeVerification.status).toBe(401);
+
+  // Incorrect OTP must fail
+  const wrongOtp = otp === '000000' ? '111111' : '000000';
+
+  const invalid = await request(app)
+    .post('/api/auth/verify-otp')
+    .send({ registrationId, otp: wrongOtp });
+
+  expect(invalid.status).toBe(400);
+
+  // Correct OTP must succeed
+  const verified = await request(app)
+    .post('/api/auth/verify-otp')
+    .send({ registrationId, otp });
+
+  expect(verified.status).toBe(201);
+
+  // Reusing the same OTP must fail
+  const reused = await request(app)
+    .post('/api/auth/verify-otp')
+    .send({ registrationId, otp });
+
+  expect(reused.status).toBe(404);
+
+  // Login after verification must succeed
+  const login = await request(app)
+    .post('/api/auth/login')
+    .send({ email, password });
+
+  expect(login.status).toBe(200);
+  expect(login.body.token).toBeTruthy();
+});
+
+it('resets passwords securely and invalidates previous sessions', async () => {
+  const email = `recovery.${run}@test.dev`;
+  const oldPassword = 'Secret123';
+  const newPassword = 'UpdatedSecret456';
+
+  // 1. Register a new test user
+  const registration = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Recovery Tester',
+      email,
+      password: oldPassword,
+      confirmPassword: oldPassword,
+    });
+
+  expect(registration.status).toBe(202);
+
+  // 2. Verify registration OTP
+  const verified = await request(app)
+    .post('/api/auth/verify-otp')
+    .send({
+      registrationId: registration.body.registrationId,
+      otp: verificationCodes.get(email),
+    });
+
+  expect(verified.status).toBe(201);
+
+  // 3. Login and capture old JWT
+  const oldLogin = await request(app)
+    .post('/api/auth/login')
+    .send({ email, password: oldPassword });
+
+  expect(oldLogin.status).toBe(200);
+
+  const oldToken = oldLogin.body.token;
+
+  // 4. Confirm old session is valid
+  const oldSession = await request(app)
+    .get('/api/auth/me')
+    .set('Authorization', `Bearer ${oldToken}`);
+
+  expect(oldSession.status).toBe(200);
+
+  // 5. Request password reset OTP
+  const forgot = await request(app)
+    .post('/api/auth/forgot-password')
+    .send({ email });
+
+  expect(forgot.status).toBe(202);
+
+  const otp = resetCodes.get(email);
+
+  expect(otp).toMatch(/^\d{6}$/);
+
+  // 6. Reject incorrect OTP
+  const wrongOtp = otp === '000000' ? '111111' : '000000';
+
+  const invalid = await request(app)
+    .post('/api/auth/verify-reset-otp')
+    .send({ email, otp: wrongOtp });
+
+  expect(invalid.status).toBe(400);
+
+  // 7. Verify correct OTP
+  const verification = await request(app)
+    .post('/api/auth/verify-reset-otp')
+    .send({ email, otp });
+
+  expect(verification.status).toBe(200);
+  expect(verification.body.resetToken).toBeTruthy();
+
+  const resetToken = verification.body.resetToken;
+
+  // 8. Reject mismatched passwords
+  const mismatch = await request(app)
+    .post('/api/auth/reset-password')
+    .send({
+      resetToken,
+      password: newPassword,
+      confirmPassword: 'DifferentPassword123',
+    });
+
+  expect(mismatch.status).toBe(400);
+
+  // 9. Reset password successfully
+  const resetBody = {
+    resetToken,
+    password: newPassword,
+    confirmPassword: newPassword,
+  };
+
+  const reset = await request(app)
+    .post('/api/auth/reset-password')
+    .send(resetBody);
+
+  expect(reset.status).toBe(200);
+
+  // 10. Prevent reset token reuse
+  const reused = await request(app)
+    .post('/api/auth/reset-password')
+    .send(resetBody);
+
+  expect(reused.status).toBe(400);
+
+  // 11. Reject old JWT
+  const expiredSession = await request(app)
+    .get('/api/auth/me')
+    .set('Authorization', `Bearer ${oldToken}`);
+
+  expect(expiredSession.status).toBe(401);
+
+  // 12. Reject old password
+  const rejectedLogin = await request(app)
+    .post('/api/auth/login')
+    .send({ email, password: oldPassword });
+
+  expect(rejectedLogin.status).toBe(401);
+
+  // 13. Login using new password
+  const newLogin = await request(app)
+    .post('/api/auth/login')
+    .send({ email, password: newPassword });
+
+  expect(newLogin.status).toBe(200);
+  expect(newLogin.body.token).toBeTruthy();
+
+  // 14. Verify new session
+  const newSession = await request(app)
+    .get('/api/auth/me')
+    .set('Authorization', `Bearer ${newLogin.body.token}`);
+
+  expect(newSession.status).toBe(200);
+  expect(newSession.body.user.email).toBe(email);
+});
+
+
 });

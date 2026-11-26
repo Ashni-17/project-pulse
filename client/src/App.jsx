@@ -5,6 +5,8 @@ import { PageLoader } from './components/ui';
 import AuthPage from './pages/AuthPage.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import ProjectPage from './pages/ProjectPage.jsx';
+import OAuthCallback from './pages/OAuthCallback.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -28,6 +30,8 @@ export default function App() {
         <Route path="projects/:projectId" element={<ProjectPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/auth/callback" element={<OAuthCallback />} />
     </Routes>
   );
 }

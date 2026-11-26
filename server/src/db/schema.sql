@@ -63,3 +63,131 @@ CREATE TABLE IF NOT EXISTS activities (
 );
 CREATE INDEX IF NOT EXISTS idx_activities_project ON activities(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activities_task ON activities(task_id, created_at);
+
+
+-- =====================================================
+-- Advanced Authentication: Email OTP Verification
+-- =====================================================
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS pending_registrations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(80) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  otp_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0
+    CHECK (attempts >= 0),
+  last_sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_registrations_expiry
+ON pending_registrations(expires_at);
+
+-- Support accounts created through OAuth providers
+ALTER TABLE users
+ALTER COLUMN password_hash DROP NOT NULL;
+
+-- Store external authentication identities
+CREATE TABLE IF NOT EXISTS oauth_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    user_id UUID NOT NULL
+        REFERENCES users(id) ON DELETE CASCADE,
+
+    provider VARCHAR(30) NOT NULL
+        CHECK (provider IN ('google', 'github')),
+
+    provider_user_id TEXT NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE (provider, provider_user_id),
+    UNIQUE (user_id, provider)
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user
+ON oauth_accounts(user_id);
+
+-- Temporary OAuth authentication sessions
+CREATE TABLE IF NOT EXISTS oauth_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    provider VARCHAR(30) NOT NULL
+        CHECK (provider IN ('google', 'github')),
+
+    state_hash TEXT NOT NULL UNIQUE,
+    nonce TEXT NOT NULL,
+    code_verifier TEXT NOT NULL,
+    browser_binding_hash TEXT NOT NULL,
+
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_sessions_expiry
+ON oauth_sessions(expires_at);
+
+-- One-time OAuth login exchange codes
+CREATE TABLE IF NOT EXISTS oauth_login_codes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    user_id UUID NOT NULL
+        REFERENCES users(id) ON DELETE CASCADE,
+
+    code_hash TEXT NOT NULL UNIQUE,
+    browser_binding_hash TEXT NOT NULL,
+
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_login_codes_expiry
+ON oauth_login_codes(expires_at);
+
+-- Password reset requests
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    user_id UUID NOT NULL UNIQUE
+        REFERENCES users(id) ON DELETE CASCADE,
+
+    otp_hash TEXT NOT NULL,
+
+    expires_at TIMESTAMPTZ NOT NULL,
+
+    attempts INTEGER NOT NULL DEFAULT 0
+        CHECK (attempts >= 0),
+
+    last_sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_expiry
+ON password_reset_requests(expires_at);
+
+-- One-time password reset authorization
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    user_id UUID NOT NULL UNIQUE
+        REFERENCES users(id) ON DELETE CASCADE,
+
+    token_hash TEXT NOT NULL UNIQUE,
+
+    expires_at TIMESTAMPTZ NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expiry
+ON password_reset_tokens(expires_at);
+-- Authentication session version
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS token_version INTEGER
+NOT NULL DEFAULT 0;

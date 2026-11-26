@@ -10,12 +10,58 @@ export function parse(schema, data) {
 const uuid = z.string().uuid();
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD');
 
+
 export const registerSchema = z.object({
-  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(80),
-  email: z.string().trim().toLowerCase().email('Enter a valid email address').max(255),
-  password: z.string().min(8, 'Use at least 8 characters').max(72)
-    .regex(/[A-Za-z]/, 'Include at least one letter').regex(/\d/, 'Include at least one number'),
+  name: z.string()
+    .trim()
+    .min(2, 'Name must be at least 2 characters')
+    .max(80),
+
+  email: z.string()
+    .trim()
+    .toLowerCase()
+    .email('Enter a valid email address')
+    .max(255),
+
+  password: z.string()
+    .min(8, 'Use at least 8 characters')
+    .max(72)
+    .regex(/[A-Za-z]/, 'Include at least one letter')
+    .regex(/\d/, 'Include at least one number')
+    .refine(
+      (value) => Buffer.byteLength(value, 'utf8') <= 72,
+      'Password must not exceed 72 bytes'
+    ),
+
+  confirmPassword: z.string()
+    .min(1, 'Please confirm your password'),
+
+}).refine(
+  (data) => data.password === data.confirmPassword,
+  {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  }
+);
+
+
+export const verifyOTPSchema = z.object({
+  registrationId: z.string().uuid(
+    'Invalid registration request'
+  ),
+
+  otp: z.string().regex(
+    /^\d{6}$/,
+    'Enter a valid 6-digit OTP'
+  ),
 });
+
+export const resendOTPSchema = z.object({
+  registrationId: z.string().uuid(
+    'Invalid registration request'
+  ),
+});
+
 
 export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email('Enter a valid email address'),
@@ -56,3 +102,50 @@ export const moveTaskSchema = z.object({
 });
 
 export const commentSchema = z.object({ body: z.string().trim().min(1, 'Write a comment first').max(2000) });
+
+// Forgot password validation
+export const forgotPasswordSchema = z.object({
+  email: z.string()
+    .trim()
+    .toLowerCase()
+    .email('Enter a valid email address')
+    .max(255),
+});
+
+// Password reset OTP verification
+export const verifyResetOTPSchema = z.object({
+  email: z.string()
+    .trim()
+    .toLowerCase()
+    .email('Enter a valid email address')
+    .max(255),
+
+  otp: z.string()
+    .regex(/^\d{6}$/, 'Enter a valid 6-digit OTP'),
+});
+
+// New password validation
+export const resetPasswordSchema = z.object({
+  resetToken: z.string()
+    .regex(/^[A-Za-z0-9_-]{43}$/, 'Invalid reset token'),
+
+  password: z.string()
+    .min(8, 'Use at least 8 characters')
+    .max(72, 'Password is too long')
+    .regex(/[A-Za-z]/, 'Include at least one letter')
+    .regex(/\d/, 'Include at least one number')
+    .refine(
+      value => Buffer.byteLength(value, 'utf8') <= 72,
+      'Password must not exceed 72 bytes'
+    ),
+
+  confirmPassword: z.string()
+    .min(1, 'Please confirm your password'),
+
+}).refine(
+  data => data.password === data.confirmPassword,
+  {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  }
+);
