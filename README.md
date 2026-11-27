@@ -37,9 +37,14 @@ Unlike traditional task management systems that require frequent page refreshes,
 | Resource | Status |
 |---|---|
 | Source Code | [GitHub Repository](https://github.com/Ashni-17/project-pulse) |
-| Live Application | Deployment pending |
-| Demo Video | Recording pending |
 | Automated Tests | 55/55 passed |
+
+## Demo Video
+
+[Watch the Project Pulse Demo on YouTube](https://youtu.be/5vaUyXNTFsI)
+
+The application is demonstrated locally.
+Complete setup instructions are provided below.
 
 ---
 
